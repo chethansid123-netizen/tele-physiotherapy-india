@@ -1,0 +1,452 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String
+  firstName     String
+  lastName      String
+  role          UserRole  @default(STAFF)
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  provider      Provider?
+  auditLogs     AuditLog[]
+  sessions      Session[]
+  @@map("users")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@map("sessions")
+}
+
+enum UserRole {
+  ADMIN
+  PHYSICIAN
+  NURSE
+  BILLING_SPECIALIST
+  STAFF
+}
+
+model Provider {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  npi             String   @unique
+  credentials     String
+  specialty       String
+  taxonomyCode    String?
+  deaNumber       String?
+  stateLicense    String?
+  licenseState    String?
+  taxId           String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id])
+  encounters      Encounter[]
+  billingRecords  BillingRecord[]
+  rpmTimeLogs     RpmTimeLog[]
+  claims          Claim[]
+  @@map("providers")
+}
+
+model Patient {
+  id                 String   @id @default(cuid())
+  mrn                String   @unique
+  firstName          String
+  lastName           String
+  dateOfBirth        DateTime
+  gender             String
+  phone              String?
+  email              String?
+  address            String?
+  city               String?
+  state              String?
+  zipCode            String?
+  primaryInsuranceId   String?
+  primaryInsurance     Insurance? @relation("PrimaryInsurance", fields: [primaryInsuranceId], references: [id])
+  secondaryInsuranceId String?
+  secondaryInsurance   Insurance? @relation("SecondaryInsurance", fields: [secondaryInsuranceId], references: [id])
+  insuranceMemberId    String?
+  insuranceGroupNumber String?
+  surgeryType        SurgeryType
+  surgeryDate        DateTime
+  surgeryDetails     String?
+  primaryDiagnosis   String
+  secondaryDiagnoses String[]
+  riskLevel          RiskLevel   @default(MODERATE)
+  isActive           Boolean     @default(true)
+  teleHealthConsent      Boolean   @default(false)
+  teleHealthConsentDate  DateTime?
+  rpmConsent             Boolean   @default(false)
+  rpmConsentDate         DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  encounters         Encounter[]
+  billingRecords     BillingRecord[]
+  rpmDeviceData      RpmDeviceData[]
+  rpmTimeLogs        RpmTimeLog[]
+  claims             Claim[]
+  @@map("patients")
+}
+
+enum SurgeryType {
+  CABG
+  VALVE_REPLACEMENT
+  VALVE_REPAIR
+  STENT_PLACEMENT
+  PACEMAKER_IMPLANT
+  ICD_IMPLANT
+  HEART_TRANSPLANT
+  LVAD_IMPLANT
+  LOBECTOMY
+  PNEUMONECTOMY
+  WEDGE_RESECTION
+  VATS
+  LUNG_TRANSPLANT
+  OTHER_CARDIAC
+  OTHER_LUNG
+}
+
+enum RiskLevel {
+  LOW
+  MODERATE
+  HIGH
+  CRITICAL
+}
+
+model Insurance {
+  id              String   @id @default(cuid())
+  payerName       String
+  payerId         String
+  payerType       PayerType
+  planName        String?
+  planType        String?
+  address         String?
+  phone           String?
+  claimAddress     String?
+  electronicPayerId String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  primaryPatients   Patient[] @relation("PrimaryInsurance")
+  secondaryPatients Patient[] @relation("SecondaryInsurance")
+  claims            Claim[]
+  @@map("insurances")
+}
+
+enum PayerType {
+  MEDICARE
+  MEDICAID
+  COMMERCIAL
+  TRICARE
+  VA
+  WORKERS_COMP
+  SELF_PAY
+  OTHER
+}
+
+model Encounter {
+  id                 String   @id @default(cuid())
+  patientId          String
+  providerId         String
+  encounterDate      DateTime
+  startTime          DateTime
+  endTime            DateTime?
+  durationMinutes    Int?
+  encounterType      EncounterType
+  communicationMode  CommunicationMode
+  placeOfService     String   @default("10")
+  chiefComplaint     String?
+  subjective         String?
+  objective          String?
+  assessment         String?
+  plan               String?
+  vitalSigns         Json?
+  status             EncounterStatus @default(SCHEDULED)
+  signedOff          Boolean  @default(false)
+  signedOffAt        DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  patient            Patient   @relation(fields: [patientId], references: [id])
+  provider           Provider  @relation(fields: [providerId], references: [id])
+  billingRecords     BillingRecord[]
+  @@map("encounters")
+}
+
+enum EncounterType {
+  TELEHEALTH_VIDEO
+  TELEHEALTH_PHONE
+  RPM_REVIEW
+  CCM_MANAGEMENT
+  ASYNC_DIGITAL
+  CARDIAC_TELEMETRY_REVIEW
+  PULMONARY_MONITORING
+  POST_OP_FOLLOWUP
+  CARE_COORDINATION
+}
+
+enum CommunicationMode {
+  VIDEO
+  PHONE
+  ASYNC_MESSAGE
+  RPM_DATA_REVIEW
+  IN_PERSON_HYBRID
+}
+
+enum EncounterStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  SIGNED_OFF
+  CANCELLED
+  NO_SHOW
+}
+
+model BillingRecord {
+  id                String   @id @default(cuid())
+  encounterId       String
+  patientId         String
+  providerId        String
+  cptCode           String
+  cptDescription    String
+  modifiers         String[]
+  icdCodes          String[]
+  placeOfService    String  @default("10")
+  unitsOfService    Int     @default(1)
+  chargeAmount      Decimal  @db.Decimal(10, 2)
+  allowedAmount     Decimal? @db.Decimal(10, 2)
+  paidAmount        Decimal? @db.Decimal(10, 2)
+  adjustmentAmount  Decimal? @db.Decimal(10, 2)
+  patientResponsibility Decimal? @db.Decimal(10, 2)
+  billingStatus     BillingStatus @default(UNBILLED)
+  dateOfService     DateTime
+  billedDate        DateTime?
+  paidDate          DateTime?
+  autoSuggested     Boolean  @default(false)
+  overriddenBy      String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  encounter         Encounter @relation(fields: [encounterId], references: [id])
+  patient           Patient   @relation(fields: [patientId], references: [id])
+  provider          Provider  @relation(fields: [providerId], references: [id])
+  claim             Claim?    @relation(fields: [claimId], references: [id])
+  claimId           String?
+  @@map("billing_records")
+}
+
+enum BillingStatus {
+  UNBILLED
+  READY_TO_BILL
+  BILLED
+  PAID
+  PARTIALLY_PAID
+  DENIED
+  APPEALED
+  WRITTEN_OFF
+}
+
+model Claim {
+  id                 String   @id @default(cuid())
+  claimNumber        String   @unique
+  patientId          String
+  providerId         String
+  insuranceId        String
+  claimType          ClaimType @default(PROFESSIONAL)
+  formType           String    @default("CMS-1500")
+  totalCharges       Decimal   @db.Decimal(10, 2)
+  totalAllowed       Decimal?  @db.Decimal(10, 2)
+  totalPaid          Decimal?  @db.Decimal(10, 2)
+  submissionMethod   SubmissionMethod @default(ELECTRONIC)
+  submittedDate      DateTime?
+  receivedDate       DateTime?
+  adjudicatedDate    DateTime?
+  paidDate           DateTime?
+  claimStatus        ClaimStatus @default(DRAFT)
+  denialReason       String?
+  denialCode         String?
+  appealDeadline     DateTime?
+  referringProviderNpi String?
+  facilityName       String?
+  facilityNpi        String?
+  ediSubmissionId    String?
+  ediResponseId      String?
+  clearinghouseId    String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  patient            Patient       @relation(fields: [patientId], references: [id])
+  provider           Provider      @relation(fields: [providerId], references: [id])
+  insurance          Insurance     @relation(fields: [insuranceId], references: [id])
+  billingRecords     BillingRecord[]
+  claimStatusHistory ClaimStatusHistory[]
+  @@map("claims")
+}
+
+enum ClaimType {
+  PROFESSIONAL
+  INSTITUTIONAL
+}
+
+enum ClaimStatus {
+  DRAFT
+  VALIDATED
+  SUBMITTED
+  ACKNOWLEDGED
+  IN_REVIEW
+  APPROVED
+  PAID
+  PARTIALLY_PAID
+  DENIED
+  APPEALED
+  APPEAL_APPROVED
+  APPEAL_DENIED
+  VOIDED
+  WRITTEN_OFF
+}
+
+enum SubmissionMethod {
+  ELECTRONIC
+  PAPER
+  PORTAL
+}
+
+model ClaimStatusHistory {
+  id          String      @id @default(cuid())
+  claimId     String
+  fromStatus  ClaimStatus?
+  toStatus    ClaimStatus
+  notes       String?
+  changedBy   String?
+  changedAt   DateTime    @default(now())
+  claim       Claim @relation(fields: [claimId], references: [id])
+  @@map("claim_status_history")
+}
+
+model RpmDeviceData {
+  id              String   @id @default(cuid())
+  patientId       String
+  deviceType      RpmDeviceType
+  readingDate     DateTime
+  readingValue    Json
+  isAbnormal      Boolean  @default(false)
+  alertTriggered  Boolean  @default(false)
+  notes           String?
+  source          String?
+  createdAt       DateTime @default(now())
+  patient         Patient @relation(fields: [patientId], references: [id])
+  @@map("rpm_device_data")
+}
+
+enum RpmDeviceType {
+  BLOOD_PRESSURE
+  PULSE_OXIMETER
+  WEIGHT_SCALE
+  ECG_MONITOR
+  CARDIAC_TELEMETRY
+  SPIROMETER
+  GLUCOSE_MONITOR
+  THERMOMETER
+  ACTIVITY_TRACKER
+}
+
+model RpmTimeLog {
+  id              String   @id @default(cuid())
+  patientId       String
+  providerId      String
+  logDate         DateTime
+  durationMinutes Int
+  activityType    RpmActivityType
+  notes           String?
+  billingPeriodStart DateTime
+  billingPeriodEnd   DateTime
+  createdAt       DateTime @default(now())
+  patient         Patient  @relation(fields: [patientId], references: [id])
+  provider        Provider @relation(fields: [providerId], references: [id])
+  @@map("rpm_time_logs")
+}
+
+enum RpmActivityType {
+  DATA_REVIEW
+  PATIENT_COMMUNICATION
+  CARE_PLAN_UPDATE
+  ALERT_RESPONSE
+  DOCUMENTATION
+  CARE_COORDINATION
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  action      AuditAction
+  resource    String
+  resourceId  String?
+  details     Json?
+  ipAddress   String?
+  userAgent   String?
+  timestamp   DateTime @default(now())
+  user        User?    @relation(fields: [userId], references: [id])
+  @@index([resource, resourceId])
+  @@index([userId, timestamp])
+  @@index([timestamp])
+  @@map("audit_logs")
+}
+
+enum AuditAction {
+  CREATE
+  READ
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  EXPORT
+  PRINT
+  CLAIM_SUBMIT
+  CLAIM_STATUS_CHANGE
+  PHI_ACCESS
+}
+
+model CptCode {
+  id              String   @id @default(cuid())
+  code            String   @unique
+  description     String
+  category        CptCategory
+  baseRate        Decimal  @db.Decimal(10, 2)
+  timeRequired    Int?
+  requiresModifier Boolean @default(false)
+  applicableModifiers String[]
+  documentationReqs String[]
+  isActive        Boolean  @default(true)
+  @@map("cpt_codes")
+}
+
+enum CptCategory {
+  RPM
+  CCM
+  TELEHEALTH_EM
+  TELEPHONE_EM
+  ONLINE_DIGITAL
+  CARDIAC_MONITORING
+  PULMONARY_MONITORING
+  POST_OP
+}
+
+model IcdCode {
+  id              String   @id @default(cuid())
+  code            String   @unique
+  description     String
+  category        String
+  isActive        Boolean  @default(true)
+  @@map("icd_codes")
+}
